@@ -97,7 +97,7 @@ impl<'a> WebSockets<'a> {
 
     fn connect_wss(&mut self, wss: &str) -> Result<()> {
         let url = Url::parse(wss)?;
-        match connect(url) {
+        match connect(url.as_str()) {
             Ok(answer) => {
                 self.socket = Some(answer);
                 Ok(())
@@ -148,7 +148,7 @@ impl<'a> WebSockets<'a> {
     pub fn event_loop(&mut self, running: &AtomicBool) -> Result<()> {
         while running.load(Ordering::Relaxed) {
             if let Some(ref mut socket) = self.socket {
-                let message = socket.0.read_message()?;
+                let message = socket.0.read()?;
                 match message {
                     Message::Text(msg) => {
                         if let Err(e) = self.handle_msg(&msg) {
@@ -156,7 +156,7 @@ impl<'a> WebSockets<'a> {
                         }
                     }
                     Message::Ping(_) => {
-                        socket.0.write_message(Message::Pong(vec![])).unwrap();
+                        socket.0.send(Message::Pong(vec![])).unwrap();
                     }
                     Message::Pong(_) | Message::Binary(_) | Message::Frame(_) => (),
                     Message::Close(e) => bail!(format!("Disconnected {:?}", e)),
