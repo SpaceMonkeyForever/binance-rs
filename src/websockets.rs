@@ -25,9 +25,9 @@ enum WebsocketAPI {
 impl WebsocketAPI {
     fn params(self, subscription: &str) -> String {
         match self {
-            WebsocketAPI::Default => format!("wss://stream.binance.com:9443/ws/{}", subscription),
+            WebsocketAPI::Default => format!("wss://stream.binance.com/ws/{}", subscription),
             WebsocketAPI::MultiStream => format!(
-                "wss://stream.binance.com:9443/stream?streams={}",
+                "wss://stream.binance.com/stream?streams={}",
                 subscription
             ),
             WebsocketAPI::Custom(url) => format!("{}/{}", url, subscription),
@@ -87,8 +87,13 @@ impl<'a> WebSockets<'a> {
         self.connect_wss(&WebsocketAPI::Default.params(subscription))
     }
 
+    // This doesn't work. Use connect_with_url. Left for compatibility with prev code
     pub fn connect_with_config(&mut self, subscription: &str, config: &Config) -> Result<()> {
         self.connect_wss(&WebsocketAPI::Custom(config.ws_endpoint.clone()).params(subscription))
+    }
+
+    pub fn connect_with_url(&mut self, url: &str) -> Result<()> {
+        self.connect_wss(url)
     }
 
     pub fn connect_multiple_streams(&mut self, endpoints: &[String]) -> Result<()> {
@@ -96,6 +101,7 @@ impl<'a> WebSockets<'a> {
     }
 
     fn connect_wss(&mut self, wss: &str) -> Result<()> {
+        println!("Connecting to WebSocket: {}", wss);
         let url = Url::parse(wss)?;
         match connect(url.as_str()) {
             Ok(answer) => {
