@@ -19,7 +19,6 @@ use tungstenite::handshake::client::Response;
 #[allow(clippy::all)]
 enum FuturesWebsocketAPI {
     Default,
-    MultiStream,
     Custom(String),
 }
 
@@ -46,9 +45,6 @@ impl FuturesWebsocketAPI {
         match self {
             FuturesWebsocketAPI::Default => {
                 format!("{}/ws/{}", baseurl, subscription)
-            }
-            FuturesWebsocketAPI::MultiStream => {
-                format!("{}/stream?streams={}", baseurl, subscription)
             }
             FuturesWebsocketAPI::Custom(url) => url,
         }
@@ -132,9 +128,23 @@ impl<'a> FuturesWebSockets<'a> {
     }
 
     pub fn connect_multiple_streams(
-        &mut self, market: &FuturesMarket, endpoints: &[String],
+        &mut self, market: &FuturesMarket, category: Option<&str>, endpoints: &[String],
     ) -> Result<()> {
-        self.connect_wss(&FuturesWebsocketAPI::MultiStream.params(market, &endpoints.join("/")))
+        let baseurl = match market {
+            FuturesMarket::USDM => "wss://fstream.binance.com",
+            FuturesMarket::COINM => "wss://dstream.binance.com",
+            FuturesMarket::Vanilla => "wss://vstream.binance.com",
+            FuturesMarket::USDMTestnet => "wss://fstream.binancefuture.com",
+            FuturesMarket::COINMTestnet => "wss://dstream.binancefuture.com",
+            FuturesMarket::VanillaTestnet => "wss://vstream.binancefuture.com",
+        };
+        let streams = endpoints.join("/");
+        let url = match category {
+            Some(category) => format!("{}/{}/stream?streams={}", baseurl, category, streams),
+            None => format!("{}/stream?streams={}", baseurl, streams),
+        };
+
+        self.connect_wss(&url)
     }
 
     fn connect_wss(&mut self, wss: &str) -> Result<()> {
