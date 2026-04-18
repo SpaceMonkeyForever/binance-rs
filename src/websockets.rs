@@ -103,6 +103,7 @@ impl<'a> WebSockets<'a> {
     }
 
     fn connect_wss(&mut self, wss: &str) -> Result<()> {
+        println!("Connecting to Binance spot websocket: {}", wss);
         let url = Url::parse(wss)?;
         match connect(url) {
             Ok(answer) => {
