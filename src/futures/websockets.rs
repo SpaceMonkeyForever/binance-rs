@@ -74,12 +74,13 @@ fn futures_multi_stream_url(market: &FuturesMarket, endpoints: &[String]) -> Res
         }
     }
 
-    Ok(format!(
-        "{}/{}/stream?streams={}",
-        futures_base_url(market),
-        first_category,
-        endpoints.join("/")
-    ))
+    let baseurl = futures_base_url(market);
+    let streams = endpoints.join("/");
+
+    Ok(match first_category {
+        "public" | "market" => format!("{}/{}/ws/{}", baseurl, first_category, streams),
+        _ => format!("{}/{}/stream?streams={}", baseurl, first_category, streams),
+    })
 }
 
 impl FuturesWebsocketAPI {
@@ -271,7 +272,7 @@ mod tests {
 
         assert_eq!(
             url,
-            "wss://fstream.binance.com/public/stream?streams=btcusdt@bookTicker"
+            "wss://fstream.binance.com/public/ws/btcusdt@bookTicker"
         );
     }
 
@@ -282,7 +283,7 @@ mod tests {
 
         assert_eq!(
             url,
-            "wss://fstream.binance.com/market/stream?streams=btcusdt@aggTrade"
+            "wss://fstream.binance.com/market/ws/btcusdt@aggTrade"
         );
     }
 
