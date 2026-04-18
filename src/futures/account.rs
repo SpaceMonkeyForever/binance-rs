@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 use std::fmt::Display;
 
-use crate::util::build_signed_request;
+
+use crate::util::{build_signed_request, uuid_futures};
 use crate::errors::Result;
 use crate::client::Client;
 use crate::api::{API, Futures};
@@ -40,10 +41,16 @@ impl From<ContractType> for String {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum PositionSide {
     Both,
     Long,
     Short,
+}
+
+#[derive(Debug, Clone)]
+pub enum AlgoType {
+    Conditional,
 }
 
 impl Display for PositionSide {
@@ -56,6 +63,7 @@ impl Display for PositionSide {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum OrderType {
     Limit,
     Market,
@@ -96,10 +104,16 @@ impl Display for WorkingType {
 
 #[allow(clippy::all)]
 pub enum TimeInForce {
+    /// Good Till Cancel
     GTC,
+    /// Immediate or Cancel
     IOC,
+    ///  Fill or Kill
     FOK,
+    /// Good Till Crossing
     GTX,
+    /// Good Till Date
+    GTD,
 }
 
 impl Display for TimeInForce {
@@ -109,6 +123,7 @@ impl Display for TimeInForce {
             Self::IOC => write!(f, "IOC"),
             Self::FOK => write!(f, "FOK"),
             Self::GTX => write!(f, "GTX"),
+            Self::GTD => write!(f, "GTD"),
         }
     }
 }
@@ -128,23 +143,48 @@ struct OrderRequest {
     pub callback_rate: Option<f64>,
     pub working_type: Option<WorkingType>,
     pub price_protect: Option<f64>,
+    pub new_client_order_id: Option<String>,
+    pub good_till_date: Option<u64>,
+    pub algo_type: Option<AlgoType>,
+    pub client_algo_id: Option<String>,
 }
 
 pub struct CustomOrderRequest {
+    // algoOrder params
+    pub algo_type: AlgoType,
+    pub client_algo_id: Option<String>,
+    //
     pub symbol: String,
     pub side: OrderSide,
+    /// Default `BOTH` for One-way Mode ; `LONG` or `SHORT` for Hedge Mode. \
+    /// It must be sent in Hedge Mode.
     pub position_side: Option<PositionSide>,
     pub order_type: OrderType,
     pub time_in_force: Option<TimeInForce>,
+    /// Cannot be sent with `closePosition`=true(Close-All)
     pub qty: Option<f64>,
     pub reduce_only: Option<bool>,
     pub price: Option<f64>,
+    /// Used with `STOP`/`STOP_MARKET` or `TAKE_PROFIT`/`TAKE_PROFIT_MARKET` orders.
     pub stop_price: Option<f64>,
+    /// Close-All，used with `STOP_MARKET` or `TAKE_PROFIT_MARKET`.
     pub close_position: Option<bool>,
+    /// Used with `TRAILING_STOP_MARKET` orders, default as the latest price(supporting different `workingType`)
     pub activation_price: Option<f64>,
+    /// Used with `TRAILING_STOP_MARKET` orders, min `0.1`, max `10` where `1` for `1%`
     pub callback_rate: Option<f64>,
+    /// `stopPrice` triggered by: `MARK_PRICE`, `CONTRACT_PRICE`. Default `CONTRACT_PRICE`
     pub working_type: Option<WorkingType>,
     pub price_protect: Option<f64>,
+    /// A unique id among open orders. \
+    /// Automatically generated if not sent. \
+    /// Can only be string following the rule: `^[\.A-Z\:/a-z0-9_-]{1,32}$`
+    pub new_client_order_id: Option<String>,
+    /// order cancel time for timeInForce **GTD**, mandatory when [TimeInForce] set to **GTD** \
+    /// order the timestamp only retains second-level precision, **ms part will be ignored** \
+    /// The goodTillDate timestamp must be greater than the current time **plus 600 seconds** and smaller than **253402300799000**.
+    /// the timestamp should be in `UTC` timezone
+    pub good_till_date: Option<u64>,
 }
 
 pub struct IncomeRequest {
@@ -224,8 +264,12 @@ impl FuturesAccount {
             callback_rate: None,
             working_type: None,
             price_protect: None,
+            new_client_order_id: None,
+            good_till_date: None,
+            algo_type: None,
+            client_algo_id: None,
         };
-        let order = self.build_order(buy);
+        let order = self.build_order(buy, None, None);
         let request = build_signed_request(order, self.recv_window)?;
         self.client
             .post_signed(API::Futures(Futures::Order), request)
@@ -250,8 +294,12 @@ impl FuturesAccount {
             callback_rate: None,
             working_type: None,
             price_protect: None,
+            new_client_order_id: None,
+            good_till_date: None,
+            algo_type: None,
+            client_algo_id: None,
         };
-        let order = self.build_order(sell);
+        let order = self.build_order(sell, None, None);
         let request = build_signed_request(order, self.recv_window)?;
         self.client
             .post_signed(API::Futures(Futures::Order), request)
@@ -278,8 +326,12 @@ impl FuturesAccount {
             callback_rate: None,
             working_type: None,
             price_protect: None,
+            new_client_order_id: None,
+            good_till_date: None,
+            algo_type: None,
+            client_algo_id: None,
         };
-        let order = self.build_order(buy);
+        let order = self.build_order(buy, None, None);
         let request = build_signed_request(order, self.recv_window)?;
         self.client
             .post_signed(API::Futures(Futures::Order), request)
@@ -306,8 +358,12 @@ impl FuturesAccount {
             callback_rate: None,
             working_type: None,
             price_protect: None,
+            new_client_order_id: None,
+            good_till_date: None,
+            algo_type: None,
+            client_algo_id: None,
         };
-        let order = self.build_order(sell);
+        let order = self.build_order(sell, None, None);
         let request = build_signed_request(order, self.recv_window)?;
         self.client
             .post_signed(API::Futures(Futures::Order), request)
@@ -362,11 +418,15 @@ impl FuturesAccount {
             callback_rate: None,
             working_type: None,
             price_protect: None,
+            new_client_order_id: None,
+            good_till_date: None,
+            algo_type: Some(AlgoType::Conditional),
+            client_algo_id: None,
         };
-        let order = self.build_order(sell);
+        let order = self.build_order(sell, None, None);
         let request = build_signed_request(order, self.recv_window)?;
         self.client
-            .post_signed(API::Futures(Futures::Order), request)
+            .post_signed(API::Futures(Futures::AlgoOrder), request)
     }
 
     // Place a STOP_MARKET close - SELL
@@ -390,15 +450,26 @@ impl FuturesAccount {
             callback_rate: None,
             working_type: None,
             price_protect: None,
+            new_client_order_id: None,
+            good_till_date: None,
+            algo_type: Some(AlgoType::Conditional),
+            client_algo_id: None,
         };
-        let order = self.build_order(sell);
+        let order = self.build_order(sell, None, Some(API::Futures(Futures::AlgoOrder)));
         let request = build_signed_request(order, self.recv_window)?;
         self.client
-            .post_signed(API::Futures(Futures::Order), request)
+            .post_signed(API::Futures(Futures::AlgoOrder), request)
     }
 
     // Custom order for for professional traders
     pub fn custom_order(&self, order_request: CustomOrderRequest) -> Result<Transaction> {
+        self.custom_order_with_params(order_request, BTreeMap::new())
+    }
+
+    // Custom order for for professional traders
+    pub fn custom_order_with_params(
+        &self, order_request: CustomOrderRequest, request_params: BTreeMap<String, String>,
+    ) -> Result<Transaction> {
         let order = OrderRequest {
             symbol: order_request.symbol,
             side: order_request.side,
@@ -414,11 +485,65 @@ impl FuturesAccount {
             callback_rate: order_request.callback_rate,
             working_type: order_request.working_type,
             price_protect: order_request.price_protect,
+            new_client_order_id: order_request.new_client_order_id,
+            good_till_date: order_request.good_till_date,
+            algo_type: Some(order_request.algo_type),
+            client_algo_id: order_request.client_algo_id,
         };
-        let order = self.build_order(order);
+        let order = self.build_order(
+            order,
+            Some(request_params),
+            Some(API::Futures(Futures::AlgoOrder)),
+        );
         let request = build_signed_request(order, self.recv_window)?;
         self.client
-            .post_signed(API::Futures(Futures::Order), request)
+            .post_signed(API::Futures(Futures::AlgoOrder), request)
+    }
+
+    // Custom order for for professional traders
+    pub fn custom_batch_orders_with_params(
+        &self, _order_count: u64, order_requests: Vec<CustomOrderRequest>,
+        request_params: BTreeMap<String, String>,
+    ) -> Result<Transaction> {
+        let request = String::from("");
+        for order_request in order_requests {
+            let order = OrderRequest {
+                symbol: order_request.symbol,
+                side: order_request.side,
+                position_side: order_request.position_side,
+                order_type: order_request.order_type,
+                time_in_force: order_request.time_in_force,
+                qty: order_request.qty,
+                reduce_only: order_request.reduce_only,
+                price: order_request.price,
+                stop_price: order_request.stop_price,
+                close_position: order_request.close_position,
+                activation_price: order_request.activation_price,
+                callback_rate: order_request.callback_rate,
+                working_type: order_request.working_type,
+                price_protect: order_request.price_protect,
+                new_client_order_id: order_request.new_client_order_id,
+                good_till_date: order_request.good_till_date,
+                algo_type: Some(order_request.algo_type),
+                client_algo_id: order_request.client_algo_id,
+            };
+            let _order = self.build_order(
+                order,
+                Some(request_params.clone()),
+                Some(API::Futures(Futures::AlgoOrder)),
+            );
+            // TODO : make a request string for batch orders api
+            // let request = build_signed_request(order, self.recv_window)?;
+        }
+        self.client
+            .post_signed(API::Futures(Futures::AlgoOrder), request)
+    }
+
+    // Custom order for for professional traders
+    pub fn custom_batch_orders(
+        &self, _order_count: u64, order_requests: Vec<CustomOrderRequest>,
+    ) -> Result<Transaction> {
+        self.custom_batch_orders_with_params(_order_count, order_requests, BTreeMap::new())
     }
 
     pub fn get_all_orders<S, F, N>(
@@ -476,11 +601,27 @@ impl FuturesAccount {
         self.client
             .get_signed(API::Futures(Futures::UserTrades), Some(request))
     }
-    fn build_order(&self, order: OrderRequest) -> BTreeMap<String, String> {
+    fn build_order(
+        &self, order: OrderRequest, request_params: Option<BTreeMap<String, String>>,
+        api_type: Option<API>,
+    ) -> BTreeMap<String, String> {
         let mut parameters = BTreeMap::new();
         parameters.insert("symbol".into(), order.symbol);
         parameters.insert("side".into(), order.side.to_string());
         parameters.insert("type".into(), order.order_type.to_string());
+
+        if let Some(API::Futures(Futures::AlgoOrder)) = api_type {
+            parameters.insert("algoType".into(), "Conditional".into());
+            parameters.insert("clientAlgoId".into(), "Conditional".into());
+            
+            if let Some(client_algo_id) = order.client_algo_id {
+                parameters.insert("clientAlgoId".into(), client_algo_id.to_string());
+            }
+
+            if let Some(stop_price) = order.stop_price {
+                parameters.insert("triggerPrice".into(), stop_price.to_string());
+            }
+        }
 
         if let Some(position_side) = order.position_side {
             parameters.insert("positionSide".into(), position_side.to_string());
@@ -520,6 +661,22 @@ impl FuturesAccount {
                 "priceProtect".into(),
                 price_protect.to_string().to_uppercase(),
             );
+        }
+        if let Some(new_client_order_id) = order.new_client_order_id {
+            parameters.insert("newClientOrderId".into(), new_client_order_id);
+        } else {
+            let uuid = uuid_futures();
+            parameters.insert("newClientOrderId".into(), uuid);
+        }
+
+        if let Some(good_till_date) = order.good_till_date {
+            parameters.insert("goodTillDate".into(), good_till_date.to_string());
+        }
+
+        if let Some(params) = request_params {
+            for (key, value) in params {
+                parameters.insert(key, value.to_string());
+            }
         }
 
         parameters
@@ -566,6 +723,39 @@ impl FuturesAccount {
         let request = build_signed_request(parameters, self.recv_window)?;
         self.client
             .post_signed(API::Futures(Futures::ChangeInitialLeverage), request)
+    }
+
+    pub fn change_margin_type<S>(&self, symbol: S, isolated: bool) -> Result<()>
+    where
+        S: Into<String>,
+    {
+        let mut parameters: BTreeMap<String, String> = BTreeMap::new();
+        let margin_type = if isolated { "ISOLATED" } else { "CROSSED" };
+        parameters.insert("symbol".into(), symbol.into());
+        parameters.insert("marginType".into(), margin_type.into());
+
+        let request = build_signed_request(parameters, self.recv_window)?;
+        self.client
+            .post_signed::<Empty>(API::Futures(Futures::MarginType), request)
+            .map(|_| ())
+    }
+
+    pub fn change_position_margin<S>(
+        &self, symbol: S, amount: f64, is_adding_margin: bool,
+    ) -> Result<()>
+    where
+        S: Into<String>,
+    {
+        let mut parameters: BTreeMap<String, String> = BTreeMap::new();
+        let margin = if is_adding_margin { "1" } else { "2" };
+        parameters.insert("symbol".into(), symbol.into());
+        parameters.insert("amount".into(), amount.to_string());
+        parameters.insert("type".into(), margin.into());
+
+        let request = build_signed_request(parameters, self.recv_window)?;
+        self.client
+            .post_signed::<Empty>(API::Futures(Futures::PositionMargin), request)
+            .map(|_| ())
     }
 
     pub fn change_position_mode(&self, dual_side_position: bool) -> Result<()> {

@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, Value};
-use std::convert::TryFrom;
 use crate::errors::{Error, ErrorKind, Result};
 
 #[derive(Deserialize, Clone)]
@@ -63,6 +62,9 @@ pub enum Filters {
         multiplier_down: String,
         avg_price_mins: Option<f64>,
     },
+    #[serde(rename = "POSITION_RISK_CONTROL")]
+    #[serde(rename_all = "camelCase")]
+    PositionRiskControl { position_control_side: String },
     #[serde(rename = "PERCENT_PRICE_BY_SIDE")]
     #[serde(rename_all = "camelCase")]
     PercentPriceBySide {
@@ -125,6 +127,12 @@ pub enum Filters {
         min_trailing_below_delta: Option<u16>,
         max_trailing_below_delta: Option<u16>,
     },
+    #[serde(rename = "MAX_NUM_ORDER_LISTS")]
+    #[serde(rename_all = "camelCase")]
+    MaxNumOrderLists { max_num_order_lists: Option<u16> },
+    #[serde(rename = "MAX_NUM_ORDER_AMENDS")]
+    #[serde(rename_all = "camelCase")]
+    MaxNumOrderAmends { max_num_order_amends: Option<u16> },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -831,6 +839,61 @@ pub struct DayTickerEvent {
 
     #[serde(rename = "l")]
     pub low: String,
+
+    #[serde(rename = "v")]
+    pub volume: String,
+
+    #[serde(rename = "q")]
+    pub quote_volume: String,
+
+    #[serde(rename = "O")]
+    pub open_time: u64,
+
+    #[serde(rename = "C")]
+    pub close_time: u64,
+
+    #[serde(rename = "F")]
+    pub first_trade_id: i64,
+
+    #[serde(rename = "L")]
+    pub last_trade_id: i64,
+
+    #[serde(rename = "n")]
+    pub num_trades: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowTickerEvent {
+    #[serde(rename = "e")]
+    pub event_type: String,
+
+    #[serde(rename = "E")]
+    pub event_time: u64,
+
+    #[serde(rename = "s")]
+    pub symbol: String,
+
+    #[serde(rename = "p")]
+    pub price_change: String,
+
+    #[serde(rename = "P")]
+    pub price_change_percent: String,
+
+    #[serde(rename = "o")]
+    pub open: String,
+
+    #[serde(rename = "h")]
+    pub high: String,
+
+    #[serde(rename = "l")]
+    pub low: String,
+
+    #[serde(rename = "c")]
+    pub current_close: String,
+
+    #[serde(rename = "w")]
+    pub average_price: String,
 
     #[serde(rename = "v")]
     pub volume: String,

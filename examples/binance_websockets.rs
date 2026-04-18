@@ -12,7 +12,7 @@ fn main() {
     //kline_websocket();
     //all_trades_websocket();
     //last_price_for_one_symbol();
-    multiple_streams();
+    // multiple_streams();
 }
 
 fn user_stream() {

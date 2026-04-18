@@ -1,5 +1,7 @@
 use error_chain::bail;
 
+use crate::config::{FUTURES_MAINNET, FUTURES_TESTNET};
+use crate::model::Empty;
 use crate::futures::model::{ExchangeInformation, ServerTime, Symbol};
 use crate::client::Client;
 use crate::errors::Result;
@@ -14,8 +16,21 @@ pub struct FuturesGeneral {
 impl FuturesGeneral {
     // Test connectivity
     pub fn ping(&self) -> Result<String> {
-        self.client.get(API::Futures(Futures::Ping), None)?;
+        self.client
+            .get::<Empty>(API::Futures(Futures::Ping), None)?;
         Ok("pong".into())
+    }
+
+    pub fn set_verbose(&mut self, verbose: bool) {
+        self.client.set_verbose(verbose);
+    }
+
+    pub fn set_testnet(&mut self, testnet: bool) {
+        if testnet {
+            self.client.set_host(FUTURES_TESTNET.into());
+        } else {
+            self.client.set_host(FUTURES_MAINNET.into());
+        }
     }
 
     // Check server time

@@ -2,7 +2,7 @@ use crate::errors::Result;
 use crate::config::Config;
 use crate::model::{
     AccountUpdateEvent, AggrTradesEvent, BalanceUpdateEvent, BookTickerEvent, DayTickerEvent,
-    DepthOrderBookEvent, KlineEvent, OrderBook, OrderTradeEvent, TradeEvent,
+    WindowTickerEvent, DepthOrderBookEvent, KlineEvent, OrderBook, OrderTradeEvent, TradeEvent,
 };
 use error_chain::bail;
 use url::Url;
@@ -26,10 +26,9 @@ impl WebsocketAPI {
     fn params(self, subscription: &str) -> String {
         match self {
             WebsocketAPI::Default => format!("wss://stream.binance.com/ws/{}", subscription),
-            WebsocketAPI::MultiStream => format!(
-                "wss://stream.binance.com/stream?streams={}",
-                subscription
-            ),
+            WebsocketAPI::MultiStream => {
+                format!("wss://stream.binance.com/stream?streams={}", subscription)
+            }
             WebsocketAPI::Custom(url) => format!("{}/{}", url, subscription),
         }
     }
@@ -46,6 +45,8 @@ pub enum WebsocketEvent {
     OrderBook(OrderBook),
     DayTicker(DayTickerEvent),
     DayTickerAll(Vec<DayTickerEvent>),
+    WindowTicker(WindowTickerEvent),
+    WindowTickerAll(Vec<WindowTickerEvent>),
     Kline(KlineEvent),
     DepthOrderBook(DepthOrderBookEvent),
     BookTicker(BookTickerEvent),
@@ -59,9 +60,11 @@ pub struct WebSockets<'a> {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 enum Events {
-    Vec(Vec<DayTickerEvent>),
+    DayTickerEventAll(Vec<DayTickerEvent>),
+    WindowTickerEventAll(Vec<WindowTickerEvent>),
     BalanceUpdateEvent(BalanceUpdateEvent),
     DayTickerEvent(DayTickerEvent),
+    WindowTickerEvent(WindowTickerEvent),
     BookTickerEvent(BookTickerEvent),
     AccountUpdateEvent(AccountUpdateEvent),
     OrderTradeEvent(OrderTradeEvent),
@@ -87,7 +90,6 @@ impl<'a> WebSockets<'a> {
         self.connect_wss(&WebsocketAPI::Default.params(subscription))
     }
 
-    // This doesn't work. Use connect_with_url. Left for compatibility with prev code
     pub fn connect_with_config(&mut self, subscription: &str, config: &Config) -> Result<()> {
         self.connect_wss(&WebsocketAPI::Custom(config.ws_endpoint.clone()).params(subscription))
     }
@@ -101,9 +103,8 @@ impl<'a> WebSockets<'a> {
     }
 
     fn connect_wss(&mut self, wss: &str) -> Result<()> {
-        println!("Connecting to WebSocket: {}", wss);
         let url = Url::parse(wss)?;
-        match connect(url.as_str()) {
+        match connect(url) {
             Ok(answer) => {
                 self.socket = Some(answer);
                 Ok(())
@@ -124,7 +125,7 @@ impl<'a> WebSockets<'a> {
         self.handle_msg(msg)
     }
 
-    fn handle_msg(&mut self, msg: &str) -> Result<()> {
+    pub fn handle_msg(&mut self, msg: &str) -> Result<()> {
         let value: serde_json::Value = serde_json::from_str(msg)?;
 
         if let Some(data) = value.get("data") {
@@ -134,7 +135,8 @@ impl<'a> WebSockets<'a> {
 
         if let Ok(events) = serde_json::from_value::<Events>(value) {
             let action = match events {
-                Events::Vec(v) => WebsocketEvent::DayTickerAll(v),
+                Events::DayTickerEventAll(v) => WebsocketEvent::DayTickerAll(v),
+                Events::WindowTickerEventAll(v) => WebsocketEvent::WindowTickerAll(v),
                 Events::BookTickerEvent(v) => WebsocketEvent::BookTicker(v),
                 Events::BalanceUpdateEvent(v) => WebsocketEvent::BalanceUpdate(v),
                 Events::AccountUpdateEvent(v) => WebsocketEvent::AccountUpdate(v),
@@ -142,6 +144,7 @@ impl<'a> WebSockets<'a> {
                 Events::AggrTradesEvent(v) => WebsocketEvent::AggrTrades(v),
                 Events::TradeEvent(v) => WebsocketEvent::Trade(v),
                 Events::DayTickerEvent(v) => WebsocketEvent::DayTicker(v),
+                Events::WindowTickerEvent(v) => WebsocketEvent::WindowTicker(v),
                 Events::KlineEvent(v) => WebsocketEvent::Kline(v),
                 Events::OrderBook(v) => WebsocketEvent::OrderBook(v),
                 Events::DepthOrderBookEvent(v) => WebsocketEvent::DepthOrderBook(v),
@@ -154,15 +157,15 @@ impl<'a> WebSockets<'a> {
     pub fn event_loop(&mut self, running: &AtomicBool) -> Result<()> {
         while running.load(Ordering::Relaxed) {
             if let Some(ref mut socket) = self.socket {
-                let message = socket.0.read()?;
+                let message = socket.0.read_message()?;
                 match message {
                     Message::Text(msg) => {
                         if let Err(e) = self.handle_msg(&msg) {
                             bail!(format!("Error on handling stream message: {}", e));
                         }
                     }
-                    Message::Ping(_) => {
-                        socket.0.send(Message::Pong(vec![])).unwrap();
+                    Message::Ping(payload) => {
+                        socket.0.write_message(Message::Pong(payload)).unwrap();
                     }
                     Message::Pong(_) | Message::Binary(_) | Message::Frame(_) => (),
                     Message::Close(e) => bail!(format!("Disconnected {:?}", e)),
