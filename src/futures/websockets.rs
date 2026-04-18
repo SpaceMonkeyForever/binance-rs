@@ -31,16 +31,60 @@ pub enum FuturesMarket {
     VanillaTestnet,
 }
 
+fn futures_base_url(market: &FuturesMarket) -> &'static str {
+    match market {
+        FuturesMarket::USDM => "wss://fstream.binance.com",
+        FuturesMarket::COINM => "wss://dstream.binance.com",
+        FuturesMarket::Vanilla => "wss://vstream.binance.com",
+        FuturesMarket::USDMTestnet => "wss://fstream.binancefuture.com",
+        FuturesMarket::COINMTestnet => "wss://dstream.binancefuture.com",
+        FuturesMarket::VanillaTestnet => "wss://vstream.binancefuture.com",
+    }
+}
+
+fn futures_stream_category(endpoint: &str) -> &'static str {
+    if endpoint.contains("@bookTicker") || endpoint.contains("@depth") {
+        "public"
+    } else if endpoint.contains("@aggTrade")
+        || endpoint.contains("@markPrice")
+        || endpoint.contains("@kline")
+        || endpoint.contains("@ticker")
+        || endpoint.contains("@miniTicker")
+        || endpoint.contains("@forceOrder")
+    {
+        "market"
+    } else {
+        "private"
+    }
+}
+
+fn futures_multi_stream_url(market: &FuturesMarket, endpoints: &[String]) -> Result<String> {
+    if endpoints.is_empty() {
+        bail!("Futures websocket endpoints must not be empty");
+    }
+
+    let first_category = futures_stream_category(&endpoints[0]);
+    for endpoint in &endpoints[1..] {
+        let category = futures_stream_category(endpoint);
+        if category != first_category {
+            bail!(format!(
+                "Mixed futures websocket categories are not supported: '{}' is {} but '{}' is {}",
+                endpoints[0], first_category, endpoint, category
+            ));
+        }
+    }
+
+    Ok(format!(
+        "{}/{}/stream?streams={}",
+        futures_base_url(market),
+        first_category,
+        endpoints.join("/")
+    ))
+}
+
 impl FuturesWebsocketAPI {
     fn params(self, market: &FuturesMarket, subscription: &str) -> String {
-        let baseurl = match market {
-            FuturesMarket::USDM => "wss://fstream.binance.com",
-            FuturesMarket::COINM => "wss://dstream.binance.com",
-            FuturesMarket::Vanilla => "wss://vstream.binance.com",
-            FuturesMarket::USDMTestnet => "wss://fstream.binancefuture.com",
-            FuturesMarket::COINMTestnet => "wss://dstream.binancefuture.com",
-            FuturesMarket::VanillaTestnet => "wss://vstream.binancefuture.com",
-        };
+        let baseurl = futures_base_url(market);
 
         match self {
             FuturesWebsocketAPI::Default => {
@@ -128,22 +172,9 @@ impl<'a> FuturesWebSockets<'a> {
     }
 
     pub fn connect_multiple_streams(
-        &mut self, market: &FuturesMarket, category: Option<&str>, endpoints: &[String],
+        &mut self, market: &FuturesMarket, endpoints: &[String],
     ) -> Result<()> {
-        let baseurl = match market {
-            FuturesMarket::USDM => "wss://fstream.binance.com",
-            FuturesMarket::COINM => "wss://dstream.binance.com",
-            FuturesMarket::Vanilla => "wss://vstream.binance.com",
-            FuturesMarket::USDMTestnet => "wss://fstream.binancefuture.com",
-            FuturesMarket::COINMTestnet => "wss://dstream.binancefuture.com",
-            FuturesMarket::VanillaTestnet => "wss://vstream.binancefuture.com",
-        };
-        let streams = endpoints.join("/");
-        let url = match category {
-            Some(category) => format!("{}/{}/stream?streams={}", baseurl, category, streams),
-            None => format!("{}/stream?streams={}", baseurl, streams),
-        };
-
+        let url = futures_multi_stream_url(market, endpoints)?;
         self.connect_wss(&url)
     }
 
@@ -226,5 +257,58 @@ impl<'a> FuturesWebSockets<'a> {
             }
         }
         bail!("running loop closed");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn futures_multi_stream_url_uses_public_category() {
+        let endpoints = vec!["btcusdt@bookTicker".to_string()];
+        let url = futures_multi_stream_url(&FuturesMarket::USDM, &endpoints).unwrap();
+
+        assert_eq!(
+            url,
+            "wss://fstream.binance.com/public/stream?streams=btcusdt@bookTicker"
+        );
+    }
+
+    #[test]
+    fn futures_multi_stream_url_uses_market_category() {
+        let endpoints = vec!["btcusdt@aggTrade".to_string()];
+        let url = futures_multi_stream_url(&FuturesMarket::USDM, &endpoints).unwrap();
+
+        assert_eq!(
+            url,
+            "wss://fstream.binance.com/market/stream?streams=btcusdt@aggTrade"
+        );
+    }
+
+    #[test]
+    fn futures_multi_stream_url_uses_private_category() {
+        let endpoints = vec!["listenKey123".to_string()];
+        let url = futures_multi_stream_url(&FuturesMarket::USDM, &endpoints).unwrap();
+
+        assert_eq!(
+            url,
+            "wss://fstream.binance.com/private/stream?streams=listenKey123"
+        );
+    }
+
+    #[test]
+    fn futures_multi_stream_url_rejects_mixed_categories() {
+        let endpoints = vec![
+            "btcusdt@bookTicker".to_string(),
+            "btcusdt@aggTrade".to_string(),
+        ];
+        let error = futures_multi_stream_url(&FuturesMarket::USDM, &endpoints).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("Mixed futures websocket categories")
+        );
     }
 }
