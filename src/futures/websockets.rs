@@ -1,7 +1,7 @@
 use crate::errors::Result;
 use crate::config::Config;
 use crate::model::{
-    AccountUpdateEvent, AggrTradesEvent, BookTickerEvent, ContinuousKlineEvent, DayTickerEvent,
+    AccountUpdateEvent, AggrTradesEvent, ContinuousKlineEvent, DayTickerEvent,
     DepthOrderBookEvent, IndexKlineEvent, IndexPriceEvent, KlineEvent, LiquidationEvent,
     MarkPriceEvent, MiniTickerEvent, OrderBook, TradeEvent, UserDataStreamExpiredEvent,
 };
@@ -116,7 +116,7 @@ pub enum FuturesWebsocketEvent {
     IndexKline(IndexKlineEvent),
     Liquidation(LiquidationEvent),
     DepthOrderBook(DepthOrderBookEvent),
-    BookTicker(BookTickerEvent),
+    BookTicker(model::BookTickerEvent),
     UserDataStreamExpiredEvent(UserDataStreamExpiredEvent),
 }
 
@@ -130,7 +130,7 @@ pub struct FuturesWebSockets<'a> {
 enum FuturesEvents {
     Vec(Vec<DayTickerEvent>),
     DayTickerEvent(DayTickerEvent),
-    BookTickerEvent(BookTickerEvent),
+    BookTickerEvent(model::BookTickerEvent),
     MiniTickerEvent(MiniTickerEvent),
     VecMiniTickerEvent(Vec<MiniTickerEvent>),
     AccountUpdateEvent(AccountUpdateEvent),

@@ -6,6 +6,37 @@ pub use crate::model::{
     SymbolPrice, Tickers,
 };
 
+/// Futures-specific bookTicker event. Distinct from the spot
+/// `crate::model::BookTickerEvent` because the futures payload carries
+/// `E` (event_time) and `T` (transaction_time), which the spot stream does not.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BookTickerEvent {
+    #[serde(rename = "u")]
+    pub update_id: u64,
+
+    #[serde(rename = "s")]
+    pub symbol: String,
+
+    #[serde(rename = "b")]
+    pub best_bid: String,
+
+    #[serde(rename = "B")]
+    pub best_bid_qty: String,
+
+    #[serde(rename = "a")]
+    pub best_ask: String,
+
+    #[serde(rename = "A")]
+    pub best_ask_qty: String,
+
+    #[serde(rename = "E")]
+    pub event_time: u64,
+
+    #[serde(rename = "T")]
+    pub transaction_time: u64,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ExchangeInformation {
